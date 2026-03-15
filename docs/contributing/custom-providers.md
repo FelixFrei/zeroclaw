@@ -204,3 +204,24 @@ default_provider = "custom:https://gateway.cloud-provider.com/v1"
 api_key = "gateway-api-key"
 default_model = "gpt-4"
 ```
+
+### Swiss AI Platform
+
+Use the dedicated provider ID when you want a stable config name for a Swiss AI Platform endpoint.
+Because Swiss AI Platform deployments can use tenant- or model-specific base URLs, set `api_url`
+explicitly or provide `SWISS_AI_PLATFORM_API_URL`.
+
+```toml
+default_provider = "swiss-ai-platform"
+api_url = "https://api.swisscom.com/layer/your-scope/your-model/v1"
+api_key = "your-swiss-ai-platform-key"
+default_model = "your-model-name"
+```
+
+Environment variable alternatives:
+
+```bash
+export SWISS_AI_PLATFORM_API_URL="https://api.swisscom.com/layer/your-scope/your-model/v1"
+export SWISS_AI_PLATFORM_API_KEY="your-swiss-ai-platform-key"
+zeroclaw agent -m "hello"
+```

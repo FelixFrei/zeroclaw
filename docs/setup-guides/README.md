@@ -7,7 +7,8 @@ For first-time setup and quick orientation.
 1. Main overview and quick start: [../../README.md](../../README.md)
 2. One-click setup and dual bootstrap mode: [one-click-bootstrap.md](one-click-bootstrap.md)
 3. Update or uninstall on macOS: [macos-update-uninstall.md](macos-update-uninstall.md)
-4. Find commands by tasks: [../reference/cli/commands-reference.md](../reference/cli/commands-reference.md)
+4. Configure Swiss AI Platform: [swiss-ai-platform-setup.md](swiss-ai-platform-setup.md)
+5. Find commands by tasks: [../reference/cli/commands-reference.md](../reference/cli/commands-reference.md)
 
 ## Choose Your Path
 
@@ -15,6 +16,7 @@ For first-time setup and quick orientation.
 |----------|---------|
 | I have an API key, want fastest setup | `zeroclaw onboard --api-key sk-... --provider openrouter` |
 | I want guided prompts | `zeroclaw onboard` |
+| I need Swiss AI Platform setup | See [swiss-ai-platform-setup.md](swiss-ai-platform-setup.md) |
 | Config exists, just fix channels | `zeroclaw onboard --channels-only` |
 | Config exists, I intentionally want full overwrite | `zeroclaw onboard --force` |
 | Using subscription auth | See [Subscription Auth](../../README.md#subscription-auth-openai-codex--claude-code) |
@@ -32,3 +34,4 @@ For first-time setup and quick orientation.
 - Runtime operations: [../ops/README.md](../ops/README.md)
 - Reference catalogs: [../reference/README.md](../reference/README.md)
 - macOS lifecycle tasks: [macos-update-uninstall.md](macos-update-uninstall.md)
+- Swiss AI Platform: [swiss-ai-platform-setup.md](swiss-ai-platform-setup.md)

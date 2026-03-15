@@ -79,6 +79,7 @@ Last refreshed: **February 18, 2026**.
 - [setup-guides/README.md](setup-guides/README.md)
 - [macos-update-uninstall.md](setup-guides/macos-update-uninstall.md)
 - [one-click-bootstrap.md](setup-guides/one-click-bootstrap.md)
+- [swiss-ai-platform-setup.md](setup-guides/swiss-ai-platform-setup.md)
 
 ### 2) Command/Config References & Integrations
 
@@ -90,6 +91,7 @@ Last refreshed: **February 18, 2026**.
 - [config-reference.md](reference/api/config-reference.md)
 - [custom-providers.md](contributing/custom-providers.md)
 - [zai-glm-setup.md](setup-guides/zai-glm-setup.md)
+- [swiss-ai-platform-setup.md](setup-guides/swiss-ai-platform-setup.md)
 - [langgraph-integration.md](contributing/langgraph-integration.md)
 
 ### 3) Operations & Deployment

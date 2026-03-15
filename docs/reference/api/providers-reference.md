@@ -29,6 +29,7 @@ credential is not reused for fallback providers.
 | `openrouter` | — | No | `OPENROUTER_API_KEY` |
 | `anthropic` | — | No | `ANTHROPIC_OAUTH_TOKEN`, `ANTHROPIC_API_KEY` |
 | `openai` | — | No | `OPENAI_API_KEY` |
+| `swiss-ai-platform` | `swiss_ai_platform` | No | `SWISS_AI_PLATFORM_API_KEY` |
 | `ollama` | — | Yes | `OLLAMA_API_KEY` (optional) |
 | `gemini` | `google`, `google-gemini` | No | `GEMINI_API_KEY`, `GOOGLE_API_KEY` |
 | `venice` | — | No | `VENICE_API_KEY` |
@@ -71,6 +72,16 @@ credential is not reused for fallback providers.
 - Authentication: `VERCEL_API_KEY`
 - Vercel AI Gateway usage does not require a project deployment.
 - If you see `DEPLOYMENT_NOT_FOUND`, verify the provider is targeting the gateway endpoint above instead of `https://api.vercel.ai`.
+
+### Swiss AI Platform Notes
+
+- Provider ID: `swiss-ai-platform`
+- Alias: `swiss_ai_platform`
+- Base API URL: no hardcoded default; set `api_url` or `SWISS_AI_PLATFORM_API_URL`
+- Authentication: `SWISS_AI_PLATFORM_API_KEY`
+- Transport: OpenAI-compatible chat completions
+- If your gateway needs extra headers or a non-standard path, use `extra_headers` and `api_path`
+- Setup guide: [../../setup-guides/swiss-ai-platform-setup.md](../../setup-guides/swiss-ai-platform-setup.md)
 
 ### Gemini Notes
 

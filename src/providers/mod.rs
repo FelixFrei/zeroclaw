@@ -873,6 +873,7 @@ fn resolve_provider_credential(name: &str, credential_override: Option<&str>) ->
         "anthropic" => vec!["ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
         "openrouter" => vec!["OPENROUTER_API_KEY"],
         "openai" => vec!["OPENAI_API_KEY"],
+        "swiss-ai-platform" | "swiss_ai_platform" => vec!["SWISS_AI_PLATFORM_API_KEY"],
         "ollama" => vec!["OLLAMA_API_KEY"],
         "venice" => vec!["VENICE_API_KEY"],
         "groq" => vec!["GROQ_API_KEY"],
@@ -1135,6 +1136,34 @@ fn create_provider_with_url_and_options(
         ))),
         "anthropic" => Ok(Box::new(anthropic::AnthropicProvider::new(key))),
         "openai" => Ok(Box::new(openai::OpenAiProvider::with_base_url(api_url, key))),
+        "swiss-ai-platform" | "swiss_ai_platform" => {
+            let raw_url = api_url
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToString::to_string)
+                .or_else(|| {
+                    std::env::var("SWISS_AI_PLATFORM_API_URL")
+                        .ok()
+                        .map(|value| value.trim().to_string())
+                        .filter(|value| !value.is_empty())
+                })
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Swiss AI Platform provider requires `api_url` or SWISS_AI_PLATFORM_API_URL."
+                    )
+                })?;
+            let base_url = parse_custom_provider_url(
+                &raw_url,
+                "Swiss AI Platform provider",
+                "api_url = \"https://api.swisscom.com/.../v1\"",
+            )?;
+            Ok(compat(OpenAiCompatibleProvider::new(
+                "Swiss AI Platform",
+                &base_url,
+                key,
+                AuthStyle::Bearer,
+            )))
+        }
         // Ollama uses api_url for custom base URL (e.g. remote Ollama instance)
         "ollama" => {
 
@@ -1781,6 +1810,12 @@ pub fn list_providers() -> Vec<ProviderInfo> {
             name: "openai",
             display_name: "OpenAI",
             aliases: &[],
+            local: false,
+        },
+        ProviderInfo {
+            name: "swiss-ai-platform",
+            display_name: "Swiss AI Platform (requires api_url)",
+            aliases: &["swiss_ai_platform"],
             local: false,
         },
         ProviderInfo {
@@ -2864,6 +2899,38 @@ mod tests {
         assert!(create_provider("build.nvidia.com", Some("nvapi-test")).is_ok());
     }
 
+    #[test]
+    fn factory_swiss_ai_platform_with_api_url() {
+        let p = create_provider_with_url(
+            "swiss-ai-platform",
+            Some("sap-test-key"),
+            Some("https://api.swisscom.com/layer/example/model/v1"),
+        );
+        assert!(p.is_ok());
+    }
+
+    #[test]
+    fn factory_swiss_ai_platform_alias_with_api_url() {
+        let p = create_provider_with_url(
+            "swiss_ai_platform",
+            Some("sap-test-key"),
+            Some("https://api.swisscom.com/layer/example/model/v1"),
+        );
+        assert!(p.is_ok());
+    }
+
+    #[test]
+    fn factory_swiss_ai_platform_requires_api_url() {
+        match create_provider("swiss-ai-platform", Some("sap-test-key")) {
+            Err(e) => assert!(
+                e.to_string()
+                    .contains("requires `api_url` or SWISS_AI_PLATFORM_API_URL"),
+                "Expected missing api_url error, got: {e}"
+            ),
+            Ok(_) => panic!("Expected error for Swiss AI Platform without api_url"),
+        }
+    }
+
     // ── AI inference routers ─────────────────────────────────
 
     #[test]
@@ -3257,15 +3324,33 @@ mod tests {
     #[test]
     fn listed_providers_and_aliases_are_constructible() {
         for provider in list_providers() {
+            let canonical = if provider.name == "swiss-ai-platform" {
+                create_provider_with_url(
+                    provider.name,
+                    Some("provider-test-credential"),
+                    Some("https://api.swisscom.com/layer/example/model/v1"),
+                )
+            } else {
+                create_provider(provider.name, Some("provider-test-credential"))
+            };
             assert!(
-                create_provider(provider.name, Some("provider-test-credential")).is_ok(),
+                canonical.is_ok(),
                 "Canonical provider id should be constructible: {}",
                 provider.name
             );
 
             for alias in provider.aliases {
+                let alias_result = if provider.name == "swiss-ai-platform" {
+                    create_provider_with_url(
+                        alias,
+                        Some("provider-test-credential"),
+                        Some("https://api.swisscom.com/layer/example/model/v1"),
+                    )
+                } else {
+                    create_provider(alias, Some("provider-test-credential"))
+                };
                 assert!(
-                    create_provider(alias, Some("provider-test-credential")).is_ok(),
+                    alias_result.is_ok(),
                     "Provider alias should be constructible: {} (for {})",
                     alias,
                     provider.name
