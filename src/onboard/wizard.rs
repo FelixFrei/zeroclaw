@@ -1701,6 +1701,22 @@ fn fetch_live_models_for_provider(
     Ok(models)
 }
 
+async fn fetch_live_models_for_provider_async(
+    provider_name: &str,
+    api_key: &str,
+    provider_api_url: Option<&str>,
+) -> Result<Vec<String>> {
+    let provider_name = provider_name.to_string();
+    let api_key = api_key.to_string();
+    let provider_api_url = provider_api_url.map(ToString::to_string);
+
+    tokio::task::spawn_blocking(move || {
+        fetch_live_models_for_provider(&provider_name, &api_key, provider_api_url.as_deref())
+    })
+    .await
+    .map_err(|error| anyhow::anyhow!("model fetch task failed: {error}"))?
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ModelCacheEntry {
     provider: String,
@@ -1919,7 +1935,9 @@ pub async fn run_models_refresh(
 
     let api_key = config.api_key.clone().unwrap_or_default();
 
-    match fetch_live_models_for_provider(&provider_name, &api_key, config.api_url.as_deref()) {
+    match fetch_live_models_for_provider_async(&provider_name, &api_key, config.api_url.as_deref())
+        .await
+    {
         Ok(models) if !models.is_empty() => {
             cache_live_models_for_provider(&config.workspace_dir, &provider_name, &models).await?;
             println!(
@@ -2868,11 +2886,13 @@ async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String,
                 .interact()?;
 
             if should_fetch_now {
-                match fetch_live_models_for_provider(
+                match fetch_live_models_for_provider_async(
                     provider_name,
                     &api_key,
                     provider_api_url.as_deref(),
-                ) {
+                )
+                .await
+                {
                     Ok(live_model_ids) if !live_model_ids.is_empty() => {
                         cache_live_models_for_provider(
                             workspace_dir,
