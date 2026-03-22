@@ -46,6 +46,9 @@ pub struct OpenAiCompatibleProvider {
     /// Custom API path suffix (e.g. "/v2/generate").
     /// When set, overrides the default `/chat/completions` path detection.
     api_path: Option<String>,
+    /// When true, requests always use `stream: true` and aggregate SSE output
+    /// back into a single text response.
+    force_streaming_response: bool,
 }
 
 /// How the provider expects the API key to be sent.
@@ -183,6 +186,7 @@ impl OpenAiCompatibleProvider {
             extra_headers: std::collections::HashMap::new(),
             reasoning_effort: None,
             api_path: None,
+            force_streaming_response: false,
         }
     }
 
@@ -217,6 +221,12 @@ impl OpenAiCompatibleProvider {
     /// When set, replaces the default `/chat/completions` path.
     pub fn with_api_path(mut self, api_path: Option<String>) -> Self {
         self.api_path = api_path;
+        self
+    }
+
+    /// Force chat-completions calls to stream and reconstruct text from SSE.
+    pub fn with_forced_streaming_response(mut self) -> Self {
+        self.force_streaming_response = true;
         self
     }
 
@@ -402,6 +412,42 @@ impl OpenAiCompatibleProvider {
         supports_reasoning_effort
             .then(|| self.reasoning_effort.clone())
             .flatten()
+    }
+
+    async fn collect_streaming_text_response(
+        &self,
+        response: reqwest::Response,
+    ) -> anyhow::Result<String> {
+        let mut bytes_stream = response.bytes_stream();
+        let mut pending = String::new();
+        let mut output = String::new();
+
+        while let Some(item) = bytes_stream.next().await {
+            let bytes = item?;
+            let chunk = std::str::from_utf8(bytes.as_ref())
+                .map_err(|err| anyhow::anyhow!("{} SSE UTF-8 decode error: {err}", self.name))?;
+            pending.push_str(chunk);
+
+            while let Some(pos) = pending.find('\n') {
+                let line = pending[..pos].to_string();
+                pending = pending[pos + 1..].to_string();
+                if let Some(delta) = parse_sse_line(&line)
+                    .map_err(|err| anyhow::anyhow!("{} SSE parse error: {err}", self.name))?
+                {
+                    output.push_str(&delta);
+                }
+            }
+        }
+
+        if !pending.trim().is_empty() {
+            if let Some(delta) = parse_sse_line(&pending)
+                .map_err(|err| anyhow::anyhow!("{} SSE parse error: {err}", self.name))?
+            {
+                output.push_str(&delta);
+            }
+        }
+
+        Ok(strip_think_tags(&output))
     }
 }
 
@@ -1289,7 +1335,7 @@ impl Provider for OpenAiCompatibleProvider {
             model: model.to_string(),
             messages,
             temperature,
-            stream: Some(false),
+            stream: Some(self.force_streaming_response),
             reasoning_effort: self.reasoning_effort_for_model(model),
             tool_stream: None,
             tools: None,
@@ -1353,6 +1399,10 @@ impl Provider for OpenAiCompatibleProvider {
             anyhow::bail!("{} API error ({status}): {sanitized}", self.name);
         }
 
+        if self.force_streaming_response {
+            return self.collect_streaming_text_response(response).await;
+        }
+
         let body = response.text().await?;
         let chat_response = parse_chat_response_body(&self.name, &body)?;
 
@@ -1413,7 +1463,7 @@ impl Provider for OpenAiCompatibleProvider {
             model: model.to_string(),
             messages: api_messages,
             temperature,
-            stream: Some(false),
+            stream: Some(self.force_streaming_response),
             reasoning_effort: self.reasoning_effort_for_model(model),
             tool_stream: None,
             tools: None,
@@ -1462,6 +1512,10 @@ impl Provider for OpenAiCompatibleProvider {
             }
 
             return Err(super::api_error(&self.name, response).await);
+        }
+
+        if self.force_streaming_response {
+            return self.collect_streaming_text_response(response).await;
         }
 
         let body = response.text().await?;
@@ -1525,7 +1579,7 @@ impl Provider for OpenAiCompatibleProvider {
             model: model.to_string(),
             messages: api_messages,
             temperature,
-            stream: Some(false),
+            stream: Some(self.force_streaming_response),
             reasoning_effort: self.reasoning_effort_for_model(model),
             tool_stream: self.tool_stream_for_tools(!tools.is_empty()),
             tools: if tools.is_empty() {
@@ -1564,6 +1618,16 @@ impl Provider for OpenAiCompatibleProvider {
 
         if !response.status().is_success() {
             return Err(super::api_error(&self.name, response).await);
+        }
+
+        if self.force_streaming_response {
+            let text = self.collect_streaming_text_response(response).await?;
+            return Ok(ProviderChatResponse {
+                text: (!text.is_empty()).then_some(text),
+                tool_calls: vec![],
+                usage: None,
+                reasoning_content: None,
+            });
         }
 
         let body = response.text().await?;
@@ -1632,7 +1696,7 @@ impl Provider for OpenAiCompatibleProvider {
                 !self.merge_system_into_user,
             ),
             temperature,
-            stream: Some(false),
+            stream: Some(self.force_streaming_response),
             reasoning_effort: self.reasoning_effort_for_model(model),
             tool_stream: self
                 .tool_stream_for_tools(tools.as_ref().is_some_and(|tools| !tools.is_empty())),
@@ -1712,6 +1776,16 @@ impl Provider for OpenAiCompatibleProvider {
             }
 
             anyhow::bail!("{} API error ({status}): {sanitized}", self.name);
+        }
+
+        if self.force_streaming_response {
+            let text = self.collect_streaming_text_response(response).await?;
+            return Ok(ProviderChatResponse {
+                text: (!text.is_empty()).then_some(text),
+                tool_calls: vec![],
+                usage: None,
+                reasoning_content: None,
+            });
         }
 
         let native_response: ApiChatResponse = response.json().await?;
@@ -2620,6 +2694,15 @@ mod tests {
         assert!(caps.native_tool_calling);
         assert!(!caps.vision);
         assert!(p.user_agent.is_none());
+    }
+
+    #[test]
+    fn forced_streaming_response_flag_is_configurable() {
+        let provider = make_provider("test", "https://example.com", Some("key"));
+        assert!(!provider.force_streaming_response);
+
+        let forced = provider.with_forced_streaming_response();
+        assert!(forced.force_streaming_response);
     }
 
     #[test]

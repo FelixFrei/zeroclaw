@@ -875,6 +875,7 @@ fn resolve_provider_credential(name: &str, credential_override: Option<&str>) ->
         "openai" => vec!["OPENAI_API_KEY"],
         "ollama" => vec!["OLLAMA_API_KEY"],
         "venice" => vec!["VENICE_API_KEY"],
+        "maple" | "maple-proxy" | "maple_proxy" => vec!["MAPLE_API_KEY"],
         "groq" => vec!["GROQ_API_KEY"],
         "mistral" => vec!["MISTRAL_API_KEY"],
         "deepseek" => vec!["DEEPSEEK_API_KEY"],
@@ -1176,6 +1177,28 @@ fn create_provider_with_url_and_options(
             )
             .without_native_tools(),
         )),
+        "maple" | "maple-proxy" | "maple_proxy" => {
+            let base_url = api_url
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .unwrap_or("http://localhost:8080/v1");
+            let maple_key = key
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                // Maple desktop proxy accepts any non-empty API key placeholder.
+                .unwrap_or("maple-desktop");
+            Ok(compat(
+                OpenAiCompatibleProvider::new_with_vision(
+                    "Maple Proxy",
+                    base_url,
+                    Some(maple_key),
+                    AuthStyle::Bearer,
+                    true,
+                )
+                .without_native_tools()
+                .with_forced_streaming_response(),
+            ))
+        }
         "vercel" | "vercel-ai" => Ok(compat(OpenAiCompatibleProvider::new(
             "Vercel AI Gateway",
             VERCEL_AI_GATEWAY_BASE_URL,
@@ -1819,6 +1842,12 @@ pub fn list_providers() -> Vec<ProviderInfo> {
             display_name: "Venice",
             aliases: &[],
             local: false,
+        },
+        ProviderInfo {
+            name: "maple",
+            display_name: "Maple Proxy",
+            aliases: &["maple-proxy", "maple_proxy"],
+            local: true,
         },
         ProviderInfo {
             name: "vercel",
@@ -2554,6 +2583,31 @@ mod tests {
     }
 
     #[test]
+    fn factory_maple() {
+        assert!(create_provider("maple", Some("key")).is_ok());
+        assert!(create_provider("maple-proxy", Some("key")).is_ok());
+        assert!(create_provider("maple_proxy", Some("key")).is_ok());
+        assert!(create_provider("maple", None).is_ok());
+    }
+
+    #[test]
+    fn maple_provider_disables_native_tool_calling() {
+        let maple = create_provider("maple", Some("key")).expect("provider should resolve");
+        assert!(!maple.supports_native_tools());
+    }
+
+    #[test]
+    fn resolve_provider_credential_maple_env() {
+        let _env_lock = env_lock();
+        let _provider_guard = EnvGuard::set("MAPLE_API_KEY", Some("maple-test-key"));
+        let _generic_guard = EnvGuard::set("API_KEY", None);
+        let _zeroclaw_guard = EnvGuard::set("ZEROCLAW_API_KEY", None);
+
+        let resolved = resolve_provider_credential("maple", None);
+        assert_eq!(resolved.as_deref(), Some("maple-test-key"));
+    }
+
+    #[test]
     fn factory_opencode() {
         assert!(create_provider("opencode", Some("key")).is_ok());
         assert!(create_provider("opencode-zen", Some("key")).is_ok());
@@ -3169,6 +3223,7 @@ mod tests {
             "ollama",
             "gemini",
             "venice",
+            "maple",
             "vercel",
             "cloudflare",
             "moonshot",

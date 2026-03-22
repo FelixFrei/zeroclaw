@@ -2,7 +2,7 @@
 
 This document maps provider IDs, aliases, and credential environment variables.
 
-Last verified: **March 12, 2026**.
+Last verified: **March 22, 2026**.
 
 ## How to List Providers
 
@@ -32,6 +32,7 @@ credential is not reused for fallback providers.
 | `ollama` | — | Yes | `OLLAMA_API_KEY` (optional) |
 | `gemini` | `google`, `google-gemini` | No | `GEMINI_API_KEY`, `GOOGLE_API_KEY` |
 | `venice` | — | No | `VENICE_API_KEY` |
+| `maple` | `maple-proxy`, `maple_proxy` | Yes | `MAPLE_API_KEY` (optional for desktop local proxy) |
 | `vercel` | `vercel-ai` | No | `VERCEL_API_KEY` |
 | `cloudflare` | `cloudflare-ai` | No | `CLOUDFLARE_API_KEY` |
 | `moonshot` | `kimi` | No | `MOONSHOT_API_KEY` |
@@ -71,6 +72,14 @@ credential is not reused for fallback providers.
 - Authentication: `VERCEL_API_KEY`
 - Vercel AI Gateway usage does not require a project deployment.
 - If you see `DEPLOYMENT_NOT_FOUND`, verify the provider is targeting the gateway endpoint above instead of `https://api.vercel.ai`.
+
+### Maple Proxy Notes
+
+- Provider ID: `maple` (aliases: `maple-proxy`, `maple_proxy`)
+- Default endpoint: `http://localhost:8080/v1` (override with `api_url`)
+- Authentication: `MAPLE_API_KEY` (desktop local proxy can use any non-empty placeholder key)
+- Transport: OpenAI-compatible chat completions
+- Maple chat completions are streaming-only; ZeroClaw automatically aggregates SSE chunks for regular chat calls.
 
 ### Gemini Notes
 

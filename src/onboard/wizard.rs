@@ -772,6 +772,7 @@ fn canonical_provider_name(provider_name: &str) -> &str {
         "github-copilot" => "copilot",
         "openai_codex" | "codex" => "openai-codex",
         "kimi_coding" | "kimi_for_coding" => "kimi-code",
+        "maple-proxy" | "maple_proxy" => "maple",
         "nvidia-nim" | "build.nvidia.com" => "nvidia",
         "aws-bedrock" => "bedrock",
         "llama.cpp" => "llamacpp",
@@ -823,6 +824,7 @@ fn default_model_for_provider(provider: &str) -> String {
         "novita" => "minimax/minimax-m2.7".into(),
         "together-ai" => "meta-llama/Llama-3.3-70B-Instruct-Turbo".into(),
         "cohere" => "command-a-03-2025".into(),
+        "maple" => "gpt-oss-120b".into(),
         "moonshot" => "kimi-k2.5".into(),
         "glm" | "zai" => "glm-5".into(),
         "minimax" => "MiniMax-M2.7".into(),
@@ -1051,6 +1053,24 @@ fn curated_models_for_provider(provider_name: &str) -> Vec<(String, String)> {
             (
                 "command-r-08-2024".to_string(),
                 "Command R (stable fast baseline)".to_string(),
+            ),
+        ],
+        "maple" => vec![
+            (
+                "gpt-oss-120b".to_string(),
+                "GPT-OSS 120B (creative + structured data, recommended)".to_string(),
+            ),
+            (
+                "deepseek-r1-0528".to_string(),
+                "DeepSeek R1 0528 (research + coding)".to_string(),
+            ),
+            (
+                "llama-3.3-70b".to_string(),
+                "Llama 3.3 70B (general reasoning)".to_string(),
+            ),
+            (
+                "qwen3-vl-30b".to_string(),
+                "Qwen3-VL 30B (vision + OCR)".to_string(),
             ),
         ],
         "kimi-code" => vec![
@@ -1308,6 +1328,7 @@ fn supports_live_model_fetch(provider_name: &str) -> bool {
             | "fireworks"
             | "novita"
             | "cohere"
+            | "maple"
             | "moonshot"
             | "glm"
             | "zai"
@@ -1335,6 +1356,7 @@ fn models_endpoint_for_provider(provider_name: &str) -> Option<&'static str> {
             "fireworks" => Some("https://api.fireworks.ai/inference/v1/models"),
             "novita" => Some("https://api.novita.ai/openai/v1/models"),
             "cohere" => Some("https://api.cohere.com/compatibility/v1/models"),
+            "maple" => Some("http://localhost:8080/v1/models"),
             "moonshot" => Some("https://api.moonshot.ai/v1/models"),
             "glm" => Some("https://api.z.ai/api/paas/v4/models"),
             "zai" => Some("https://api.z.ai/api/coding/paas/v4/models"),
@@ -1592,7 +1614,7 @@ fn resolve_live_models_endpoint(
 
     if matches!(
         canonical_provider_name(provider_name),
-        "llamacpp" | "sglang" | "vllm" | "osaurus"
+        "llamacpp" | "sglang" | "vllm" | "osaurus" | "maple"
     ) {
         if let Some(url) = provider_api_url
             .map(str::trim)
@@ -1633,6 +1655,12 @@ fn fetch_live_models_for_provider(
     let api_key = if api_key.trim().is_empty() {
         if provider_name == "ollama" && !ollama_remote {
             None
+        } else if provider_name == "maple" {
+            std::env::var(provider_env_var(provider_name))
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .or_else(|| Some("maple-desktop".to_string()))
         } else {
             std::env::var(provider_env_var(provider_name))
                 .ok()
@@ -2383,6 +2411,7 @@ async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String,
             ("opencode", "OpenCode Zen — code-focused AI"),
             ("opencode-go", "OpenCode Go — Subsidized code-focused AI"),
             ("cohere", "Cohere — Command R+ & embeddings"),
+            ("maple", "Maple Proxy — OpenAI-compatible private LLM proxy"),
         ],
         4 => local_provider_choices(),
         _ => vec![], // Custom — handled below
@@ -2770,6 +2799,7 @@ async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String,
                 "cohere" => "https://dashboard.cohere.com/api-keys",
                 "vercel" => "https://vercel.com/account/tokens",
                 "cloudflare" => "https://dash.cloudflare.com/profile/api-tokens",
+                "maple" | "maple-proxy" | "maple_proxy" => "https://trymaple.ai",
                 "nvidia" | "nvidia-nim" | "build.nvidia.com" => "https://build.nvidia.com/",
                 "bedrock" => "https://console.aws.amazon.com/iam",
                 "gemini" => "https://aistudio.google.com/app/apikey",
@@ -2843,6 +2873,7 @@ async fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String,
                 && std::env::var(provider_env_var(provider_name))
                     .ok()
                     .is_some_and(|value| !value.trim().is_empty()))
+            || canonical_provider == "maple"
             || (provider_name == "minimax"
                 && std::env::var("MINIMAX_OAUTH_TOKEN")
                     .ok()
@@ -3051,6 +3082,7 @@ fn provider_env_var(name: &str) -> &'static str {
         "vllm" => "VLLM_API_KEY",
         "osaurus" => "OSAURUS_API_KEY",
         "venice" => "VENICE_API_KEY",
+        "maple" => "MAPLE_API_KEY",
         "groq" => "GROQ_API_KEY",
         "mistral" => "MISTRAL_API_KEY",
         "deepseek" => "DEEPSEEK_API_KEY",
@@ -6839,6 +6871,7 @@ mod tests {
             "gemini-2.5-pro"
         );
         assert_eq!(default_model_for_provider("venice"), "zai-org-glm-5");
+        assert_eq!(default_model_for_provider("maple"), "gpt-oss-120b");
         assert_eq!(default_model_for_provider("moonshot"), "kimi-k2.5");
         assert_eq!(
             default_model_for_provider("nvidia"),
@@ -6876,6 +6909,8 @@ mod tests {
         assert_eq!(canonical_provider_name("kimi-cn"), "moonshot");
         assert_eq!(canonical_provider_name("kimi_coding"), "kimi-code");
         assert_eq!(canonical_provider_name("kimi_for_coding"), "kimi-code");
+        assert_eq!(canonical_provider_name("maple-proxy"), "maple");
+        assert_eq!(canonical_provider_name("maple_proxy"), "maple");
         assert_eq!(canonical_provider_name("glm-cn"), "glm");
         assert_eq!(canonical_provider_name("bigmodel"), "glm");
         assert_eq!(canonical_provider_name("minimax-cn"), "minimax");
@@ -7031,6 +7066,7 @@ mod tests {
         assert!(supports_live_model_fetch("astrai"));
         assert!(supports_live_model_fetch("avian"));
         assert!(supports_live_model_fetch("venice"));
+        assert!(supports_live_model_fetch("maple"));
         assert!(supports_live_model_fetch("glm-cn"));
         assert!(supports_live_model_fetch("qwen-intl"));
         assert!(!supports_live_model_fetch("minimax-cn"));
@@ -7130,6 +7166,10 @@ mod tests {
         assert_eq!(
             models_endpoint_for_provider("cohere"),
             Some("https://api.cohere.com/compatibility/v1/models")
+        );
+        assert_eq!(
+            models_endpoint_for_provider("maple"),
+            Some("http://localhost:8080/v1/models")
         );
         assert_eq!(
             models_endpoint_for_provider("moonshot"),
@@ -7241,6 +7281,10 @@ mod tests {
         assert_eq!(
             resolve_live_models_endpoint("vllm", Some("http://127.0.0.1:9000/v1/models")),
             Some("http://127.0.0.1:9000/v1/models".to_string())
+        );
+        assert_eq!(
+            resolve_live_models_endpoint("maple", Some("http://127.0.0.1:8088/v1")),
+            Some("http://127.0.0.1:8088/v1/models".to_string())
         );
     }
 
@@ -7410,6 +7454,8 @@ mod tests {
         assert_eq!(provider_env_var("anthropic"), "ANTHROPIC_API_KEY");
         assert_eq!(provider_env_var("openai-codex"), "OPENAI_API_KEY");
         assert_eq!(provider_env_var("openai"), "OPENAI_API_KEY");
+        assert_eq!(provider_env_var("maple"), "MAPLE_API_KEY");
+        assert_eq!(provider_env_var("maple-proxy"), "MAPLE_API_KEY");
         assert_eq!(provider_env_var("ollama"), "OLLAMA_API_KEY");
         assert_eq!(provider_env_var("llamacpp"), "LLAMACPP_API_KEY");
         assert_eq!(provider_env_var("llama.cpp"), "LLAMACPP_API_KEY");
