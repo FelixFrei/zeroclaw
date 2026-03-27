@@ -12,6 +12,13 @@ const MAX_AUDIO_BYTES: usize = 25 * 1024 * 1024;
 /// Request timeout for transcription API calls (seconds).
 const TRANSCRIPTION_TIMEOUT_SECS: u64 = 120;
 
+/// Default host for Swiss AI Platform Whisper.
+const SWISS_AI_PLATFORM_WHISPER_DEFAULT_HOST: &str =
+    "https://api.swisscom.com/layer/swiss-ai-platform/whisper";
+
+/// Fixed transcription endpoint for Swiss AI Platform Whisper.
+const SWISS_AI_PLATFORM_WHISPER_ENDPOINT: &str = "/v1/audio/transcriptions";
+
 // ── Audio utilities ─────────────────────────────────────────────
 
 /// Map file extension to MIME type for Whisper-compatible transcription APIs.
@@ -109,6 +116,14 @@ fn validate_audio(audio_data: &[u8], file_name: &str) -> Result<(String, &'stati
         );
     }
     resolve_audio_format(file_name)
+}
+
+/// Canonicalize provider aliases used by `transcription.default_provider`.
+fn canonical_transcription_provider_name(provider: &str) -> &str {
+    match provider.trim() {
+        "swiss-ai-platform" => "swiss_ai_platform",
+        other => other,
+    }
 }
 
 // ── TranscriptionProvider trait ─────────────────────────────────
@@ -266,6 +281,109 @@ impl TranscriptionProvider for OpenAiWhisperProvider {
             .send()
             .await
             .context("Failed to send transcription request to OpenAI")?;
+
+        parse_whisper_response(resp).await
+    }
+}
+
+// ── SwissAiPlatformWhisperProvider ─────────────────────────────
+
+/// Swiss AI Platform Whisper transcription provider.
+pub struct SwissAiPlatformWhisperProvider {
+    api_key: String,
+    url: String,
+    model: String,
+}
+
+impl SwissAiPlatformWhisperProvider {
+    pub fn from_config(config: &crate::config::SwissAiPlatformWhisperSttConfig) -> Result<Self> {
+        let api_key = config
+            .api_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(ToOwned::to_owned)
+            .or_else(|| {
+                std::env::var("SWISS_AI_PLATFORM_WHISPER_API_KEY")
+                    .ok()
+                    .map(|v| v.trim().to_string())
+                    .filter(|v| !v.is_empty())
+            })
+            .context(
+                "Missing Swiss AI Platform Whisper API key: set [transcription.swiss_ai_platform].api_key or SWISS_AI_PLATFORM_WHISPER_API_KEY",
+            )?;
+
+        let raw_host = config
+            .host
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(ToOwned::to_owned)
+            .or_else(|| {
+                std::env::var("SWISS_AI_PLATFORM_WHISPER_HOST")
+                    .ok()
+                    .map(|v| v.trim().to_string())
+                    .filter(|v| !v.is_empty())
+            })
+            .unwrap_or_else(|| SWISS_AI_PLATFORM_WHISPER_DEFAULT_HOST.to_string());
+
+        let normalized_host = raw_host.trim_end_matches('/');
+        anyhow::ensure!(
+            !normalized_host.is_empty(),
+            "swiss_ai_platform: `host` must not be empty"
+        );
+
+        let url = if normalized_host.ends_with(SWISS_AI_PLATFORM_WHISPER_ENDPOINT) {
+            normalized_host.to_string()
+        } else {
+            format!("{normalized_host}{SWISS_AI_PLATFORM_WHISPER_ENDPOINT}")
+        };
+
+        let parsed = url
+            .parse::<reqwest::Url>()
+            .with_context(|| format!("swiss_ai_platform: invalid Whisper URL: {url:?}"))?;
+        anyhow::ensure!(
+            matches!(parsed.scheme(), "http" | "https"),
+            "swiss_ai_platform: Whisper host must use http or https scheme, got {:?}",
+            parsed.scheme()
+        );
+
+        Ok(Self {
+            api_key,
+            url,
+            model: config.model.clone(),
+        })
+    }
+}
+
+#[async_trait]
+impl TranscriptionProvider for SwissAiPlatformWhisperProvider {
+    fn name(&self) -> &str {
+        "swiss_ai_platform"
+    }
+
+    async fn transcribe(&self, audio_data: &[u8], file_name: &str) -> Result<String> {
+        let (normalized_name, mime) = validate_audio(audio_data, file_name)?;
+
+        let client = crate::config::build_runtime_proxy_client("transcription.swiss_ai_platform");
+
+        let file_part = Part::bytes(audio_data.to_vec())
+            .file_name(normalized_name)
+            .mime_str(mime)?;
+
+        let form = Form::new()
+            .part("file", file_part)
+            .text("model", self.model.clone())
+            .text("response_format", "json");
+
+        let resp = client
+            .post(&self.url)
+            .bearer_auth(&self.api_key)
+            .multipart(form)
+            .timeout(std::time::Duration::from_secs(TRANSCRIPTION_TIMEOUT_SECS))
+            .send()
+            .await
+            .context("Failed to send transcription request to Swiss AI Platform Whisper")?;
 
         parse_whisper_response(resp).await
     }
@@ -744,6 +862,17 @@ impl TranscriptionManager {
             }
         }
 
+        if let Some(ref swiss_cfg) = config.swiss_ai_platform {
+            match SwissAiPlatformWhisperProvider::from_config(swiss_cfg) {
+                Ok(p) => {
+                    providers.insert("swiss_ai_platform".to_string(), Box::new(p));
+                }
+                Err(e) => {
+                    tracing::warn!("swiss_ai_platform config invalid, provider skipped: {e}");
+                }
+            }
+        }
+
         if let Some(ref deepgram_cfg) = config.deepgram {
             if let Ok(p) = DeepgramProvider::from_config(deepgram_cfg) {
                 providers.insert("deepgram".to_string(), Box::new(p));
@@ -773,7 +902,8 @@ impl TranscriptionManager {
             }
         }
 
-        let default_provider = config.default_provider.clone();
+        let default_provider =
+            canonical_transcription_provider_name(&config.default_provider).to_string();
 
         if config.enabled && !providers.contains_key(&default_provider) {
             let available: Vec<&str> = providers.keys().map(|k| k.as_str()).collect();
@@ -802,6 +932,7 @@ impl TranscriptionManager {
         file_name: &str,
         provider: &str,
     ) -> Result<String> {
+        let provider = canonical_transcription_provider_name(provider);
         let p = self.providers.get(provider).ok_or_else(|| {
             let available: Vec<&str> = self.providers.keys().map(|k| k.as_str()).collect();
             anyhow::anyhow!(
@@ -843,7 +974,7 @@ pub async fn transcribe_audio(
     // are reported before missing-key errors (preserves original behavior).
     validate_audio(&audio_data, file_name)?;
 
-    match config.default_provider.as_str() {
+    match canonical_transcription_provider_name(&config.default_provider) {
         "groq" => {
             let groq = GroqProvider::from_config(config)?;
             groq.transcribe(&audio_data, file_name).await
@@ -854,6 +985,13 @@ pub async fn transcribe_audio(
             )?;
             let openai = OpenAiWhisperProvider::from_config(openai_cfg)?;
             openai.transcribe(&audio_data, file_name).await
+        }
+        "swiss_ai_platform" => {
+            let swiss_cfg = config.swiss_ai_platform.as_ref().context(
+                "Default transcription provider 'swiss_ai_platform' is not configured. Add [transcription.swiss_ai_platform]",
+            )?;
+            let swiss = SwissAiPlatformWhisperProvider::from_config(swiss_cfg)?;
+            swiss.transcribe(&audio_data, file_name).await
         }
         "deepgram" => {
             let deepgram_cfg = config.deepgram.as_ref().context(
@@ -1077,6 +1215,24 @@ mod tests {
         assert_eq!(manager.available_providers().len(), 3);
     }
 
+    #[test]
+    fn manager_registers_swiss_ai_platform_provider() {
+        let mut config = TranscriptionConfig::default();
+        config.swiss_ai_platform = Some(crate::config::SwissAiPlatformWhisperSttConfig {
+            api_key: Some("test-swiss-whisper-key".to_string()),
+            host: Some("https://api.swisscom.com/layer/swiss-ai-platform/whisper".to_string()),
+            model: "Systran/faster-whisper-large-v3".to_string(),
+        });
+        config.default_provider = "swiss_ai_platform".to_string();
+
+        let manager = TranscriptionManager::new(&config).unwrap();
+        assert!(manager.providers.contains_key("swiss_ai_platform"));
+        assert_eq!(
+            manager.providers["swiss_ai_platform"].name(),
+            "swiss_ai_platform"
+        );
+    }
+
     #[tokio::test]
     async fn manager_rejects_unconfigured_provider() {
         std::env::remove_var("GROQ_API_KEY");
@@ -1108,6 +1264,20 @@ mod tests {
 
         let manager = TranscriptionManager::new(&config).unwrap();
         assert_eq!(manager.default_provider, "openai");
+    }
+
+    #[test]
+    fn manager_accepts_swiss_ai_platform_alias_as_default_provider() {
+        let mut config = TranscriptionConfig::default();
+        config.default_provider = "swiss-ai-platform".to_string();
+        config.swiss_ai_platform = Some(crate::config::SwissAiPlatformWhisperSttConfig {
+            api_key: Some("test-swiss-whisper-key".to_string()),
+            host: Some("https://api.swisscom.com/layer/swiss-ai-platform/whisper".to_string()),
+            model: "Systran/faster-whisper-large-v3".to_string(),
+        });
+
+        let manager = TranscriptionManager::new(&config).unwrap();
+        assert_eq!(manager.default_provider, "swiss_ai_platform");
     }
 
     #[test]
@@ -1149,10 +1319,64 @@ mod tests {
         assert_eq!(config.model, "whisper-large-v3-turbo");
         assert_eq!(config.default_provider, "groq");
         assert!(config.openai.is_none());
+        assert!(config.swiss_ai_platform.is_none());
         assert!(config.deepgram.is_none());
         assert!(config.assemblyai.is_none());
         assert!(config.google.is_none());
         assert!(config.local_whisper.is_none());
+    }
+
+    fn swiss_ai_platform_whisper_config(
+        host: &str,
+    ) -> crate::config::SwissAiPlatformWhisperSttConfig {
+        crate::config::SwissAiPlatformWhisperSttConfig {
+            api_key: Some("test-swiss-whisper-key".to_string()),
+            host: Some(host.to_string()),
+            model: "Systran/faster-whisper-large-v3".to_string(),
+        }
+    }
+
+    #[test]
+    fn swiss_ai_platform_whisper_rejects_missing_api_key() {
+        std::env::remove_var("SWISS_AI_PLATFORM_WHISPER_API_KEY");
+
+        let cfg = crate::config::SwissAiPlatformWhisperSttConfig {
+            api_key: None,
+            host: Some("https://api.swisscom.com/layer/swiss-ai-platform/whisper".to_string()),
+            model: "Systran/faster-whisper-large-v3".to_string(),
+        };
+        let err = SwissAiPlatformWhisperProvider::from_config(&cfg)
+            .err()
+            .unwrap();
+        assert!(
+            err.to_string()
+                .contains("SWISS_AI_PLATFORM_WHISPER_API_KEY"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn swiss_ai_platform_whisper_normalizes_host_to_endpoint() {
+        let cfg = swiss_ai_platform_whisper_config(
+            "https://api.swisscom.com/layer/swiss-ai-platform/whisper/",
+        );
+        let provider = SwissAiPlatformWhisperProvider::from_config(&cfg).unwrap();
+        assert_eq!(
+            provider.url,
+            "https://api.swisscom.com/layer/swiss-ai-platform/whisper/v1/audio/transcriptions"
+        );
+    }
+
+    #[test]
+    fn swiss_ai_platform_whisper_accepts_full_endpoint_host() {
+        let cfg = swiss_ai_platform_whisper_config(
+            "https://api.swisscom.com/layer/swiss-ai-platform/whisper/v1/audio/transcriptions",
+        );
+        let provider = SwissAiPlatformWhisperProvider::from_config(&cfg).unwrap();
+        assert_eq!(
+            provider.url,
+            "https://api.swisscom.com/layer/swiss-ai-platform/whisper/v1/audio/transcriptions"
+        );
     }
 
     // ── LocalWhisperProvider tests (TDD — added below as red/green cycles) ──
@@ -1407,5 +1631,32 @@ mod tests {
             err.to_string().contains("Bad Gateway"),
             "expected plain-text body in error, got: {err}"
         );
+    }
+
+    #[tokio::test]
+    async fn swiss_ai_platform_whisper_returns_text_from_response() {
+        use wiremock::matchers::{header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+
+        Mock::given(method("POST"))
+            .and(path("/v1/audio/transcriptions"))
+            .and(header("authorization", "Bearer test-swiss-whisper-key"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"text": "gruezi mitenand"})),
+            )
+            .mount(&server)
+            .await;
+
+        let cfg = swiss_ai_platform_whisper_config(&server.uri());
+        let provider = SwissAiPlatformWhisperProvider::from_config(&cfg).unwrap();
+
+        let result = provider
+            .transcribe(b"fake-audio", "voice.ogg")
+            .await
+            .unwrap();
+        assert_eq!(result, "gruezi mitenand");
     }
 }

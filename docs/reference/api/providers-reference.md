@@ -80,6 +80,7 @@ credential is not reused for fallback providers.
 - Base API URL: no hardcoded default; set `api_url` or `SWISS_AI_PLATFORM_API_URL`
 - Authentication: `SWISS_AI_PLATFORM_API_KEY`
 - Transport: OpenAI-compatible chat completions
+- Whisper STT uses separate credentials: `SWISS_AI_PLATFORM_WHISPER_API_KEY` and optional `SWISS_AI_PLATFORM_WHISPER_HOST`
 - If your gateway needs extra headers or a non-standard path, use `extra_headers` and `api_path`
 - Setup guide: [../../setup-guides/swiss-ai-platform-setup.md](../../setup-guides/swiss-ai-platform-setup.md)
 

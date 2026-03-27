@@ -20,6 +20,9 @@ Current provider IDs:
 |---|---|---|
 | `swiss-ai-platform` | `swiss_ai_platform` | Requires `api_url` or `SWISS_AI_PLATFORM_API_URL` |
 
+Swiss AI Platform Whisper transcription uses a separate STT configuration and
+does not reuse the chat-completions credential automatically.
+
 Credential resolution order for this provider:
 
 1. Explicit `api_key` from config or CLI
@@ -77,6 +80,41 @@ export SWISS_AI_PLATFORM_API_URL="https://api.swisscom.com/layer/your-scope/your
 export SWISS_AI_PLATFORM_API_KEY="your-swiss-ai-platform-key"
 zeroclaw agent -m "hello"
 ```
+
+## Whisper Transcription
+
+If you also want Swiss AI Platform Whisper for channel voice transcription, use
+a separate STT provider block and a separate API key:
+
+```toml
+[transcription]
+enabled = true
+default_provider = "swiss_ai_platform"
+
+[transcription.swiss_ai_platform]
+api_key = "your-swiss-ai-platform-whisper-key"
+host = "https://api.swisscom.com/layer/swiss-ai-platform/whisper"
+model = "Systran/faster-whisper-large-v3"
+```
+
+Environment variable alternative:
+
+```bash
+export SWISS_AI_PLATFORM_WHISPER_API_KEY="your-swiss-ai-platform-whisper-key"
+export SWISS_AI_PLATFORM_WHISPER_HOST="https://api.swisscom.com/layer/swiss-ai-platform/whisper"
+```
+
+ZeroClaw posts Whisper requests to:
+
+```text
+${SWISS_AI_PLATFORM_WHISPER_HOST:-https://api.swisscom.com/layer/swiss-ai-platform/whisper}/v1/audio/transcriptions
+```
+
+Important:
+
+- `SWISS_AI_PLATFORM_API_KEY` is for the regular OpenAI-compatible LLM provider.
+- `SWISS_AI_PLATFORM_WHISPER_API_KEY` is for Swiss AI Platform Whisper STT.
+- `SWISS_AI_PLATFORM_WHISPER_HOST` overrides only the Whisper host, not the LLM `api_url`.
 
 ## Optional Compatibility Settings
 

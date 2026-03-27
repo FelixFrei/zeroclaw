@@ -27,10 +27,10 @@ pub use schema::{
     RuntimeConfig, SandboxBackend, SandboxConfig, SchedulerConfig, SecretsConfig, SecurityConfig,
     SecurityOpsConfig, SkillCreationConfig, SkillsConfig, SkillsPromptInjectionMode, SlackConfig,
     StorageConfig, StorageProviderConfig, StorageProviderSection, StreamMode, SwarmConfig,
-    SwarmStrategy, TelegramConfig, TextBrowserConfig, ToolFilterGroup, ToolFilterGroupMode,
-    TranscriptionConfig, TtsConfig, TunnelConfig, VerifiableIntentConfig, WebFetchConfig,
-    WebSearchConfig, WebhookConfig, WhatsAppChatPolicy, WhatsAppWebMode, WorkspaceConfig,
-    DEFAULT_GWS_SERVICES,
+    SwarmStrategy, SwissAiPlatformWhisperSttConfig, TelegramConfig, TextBrowserConfig,
+    ToolFilterGroup, ToolFilterGroupMode, TranscriptionConfig, TtsConfig, TunnelConfig,
+    VerifiableIntentConfig, WebFetchConfig, WebSearchConfig, WebhookConfig, WhatsAppChatPolicy,
+    WhatsAppWebMode, WorkspaceConfig, DEFAULT_GWS_SERVICES,
 };
 
 pub fn name_and_presence<T: traits::ChannelConfig>(channel: Option<&T>) -> (&'static str, bool) {

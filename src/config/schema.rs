@@ -746,6 +746,10 @@ fn default_openai_stt_model() -> String {
     "whisper-1".into()
 }
 
+fn default_swiss_ai_platform_whisper_stt_model() -> String {
+    "Systran/faster-whisper-large-v3".into()
+}
+
 fn default_deepgram_stt_model() -> String {
     "nova-2".into()
 }
@@ -791,6 +795,9 @@ pub struct TranscriptionConfig {
     /// OpenAI Whisper STT provider configuration.
     #[serde(default)]
     pub openai: Option<OpenAiSttConfig>,
+    /// Swiss AI Platform Whisper STT provider configuration.
+    #[serde(default)]
+    pub swiss_ai_platform: Option<SwissAiPlatformWhisperSttConfig>,
     /// Deepgram STT provider configuration.
     #[serde(default)]
     pub deepgram: Option<DeepgramSttConfig>,
@@ -817,6 +824,7 @@ impl Default for TranscriptionConfig {
             initial_prompt: None,
             max_duration_secs: default_transcription_max_duration_secs(),
             openai: None,
+            swiss_ai_platform: None,
             deepgram: None,
             assemblyai: None,
             google: None,
@@ -1156,6 +1164,25 @@ pub struct OpenAiSttConfig {
     pub api_key: Option<String>,
     /// Whisper model name (default: "whisper-1").
     #[serde(default = "default_openai_stt_model")]
+    pub model: String,
+}
+
+/// Swiss AI Platform Whisper STT provider configuration (`[transcription.swiss_ai_platform]`).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SwissAiPlatformWhisperSttConfig {
+    /// Swiss AI Platform Whisper API key.
+    #[serde(default)]
+    pub api_key: Option<String>,
+    /// Optional host override for the Whisper endpoint.
+    ///
+    /// Expected shape:
+    /// `"https://api.swisscom.com/layer/swiss-ai-platform/whisper"`.
+    /// If unset, runtime falls back to `SWISS_AI_PLATFORM_WHISPER_HOST`, then
+    /// the built-in Swisscom host.
+    #[serde(default)]
+    pub host: Option<String>,
+    /// Whisper model name.
+    #[serde(default = "default_swiss_ai_platform_whisper_stt_model")]
     pub model: String,
 }
 
@@ -7640,6 +7667,13 @@ impl Config {
                     "config.transcription.openai.api_key",
                 )?;
             }
+            if let Some(ref mut swiss_ai_platform) = config.transcription.swiss_ai_platform {
+                decrypt_optional_secret(
+                    &store,
+                    &mut swiss_ai_platform.api_key,
+                    "config.transcription.swiss_ai_platform.api_key",
+                )?;
+            }
             if let Some(ref mut deepgram) = config.transcription.deepgram {
                 decrypt_optional_secret(
                     &store,
@@ -8593,10 +8627,11 @@ impl Config {
         {
             let dp = self.transcription.default_provider.trim();
             match dp {
-                "groq" | "openai" | "deepgram" | "assemblyai" | "google" | "local_whisper" => {}
+                "groq" | "openai" | "swiss_ai_platform" | "swiss-ai-platform" | "deepgram"
+                | "assemblyai" | "google" | "local_whisper" => {}
                 other => {
                     anyhow::bail!(
-                        "transcription.default_provider must be one of: groq, openai, deepgram, assemblyai, google, local_whisper (got '{other}')"
+                        "transcription.default_provider must be one of: groq, openai, swiss_ai_platform, swiss-ai-platform, deepgram, assemblyai, google, local_whisper (got '{other}')"
                     );
                 }
             }
@@ -9076,6 +9111,13 @@ impl Config {
                 &store,
                 &mut openai.api_key,
                 "config.transcription.openai.api_key",
+            )?;
+        }
+        if let Some(ref mut swiss_ai_platform) = config_to_save.transcription.swiss_ai_platform {
+            encrypt_optional_secret(
+                &store,
+                &mut swiss_ai_platform.api_key,
+                "config.transcription.swiss_ai_platform.api_key",
             )?;
         }
         if let Some(ref mut deepgram) = config_to_save.transcription.deepgram {
@@ -12982,6 +13024,7 @@ default_model = "persisted-profile"
         assert_eq!(tc.model, "whisper-large-v3-turbo");
         assert!(tc.language.is_none());
         assert_eq!(tc.max_duration_secs, 120);
+        assert!(tc.swiss_ai_platform.is_none());
     }
 
     #[test]
@@ -13073,6 +13116,26 @@ require_otp_to_resume = true
 
         config.validate().expect(
             "local_whisper must be accepted by the transcription.default_provider allowlist",
+        );
+    }
+
+    #[test]
+    async fn validate_accepts_swiss_ai_platform_as_transcription_default_provider() {
+        let mut config = Config::default();
+        config.transcription.default_provider = "swiss_ai_platform".to_string();
+
+        config.validate().expect(
+            "swiss_ai_platform must be accepted by the transcription.default_provider allowlist",
+        );
+    }
+
+    #[test]
+    async fn validate_accepts_swiss_ai_platform_alias_as_transcription_default_provider() {
+        let mut config = Config::default();
+        config.transcription.default_provider = "swiss-ai-platform".to_string();
+
+        config.validate().expect(
+            "swiss-ai-platform alias must be accepted by the transcription.default_provider allowlist",
         );
     }
 
